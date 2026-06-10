@@ -15,6 +15,7 @@ android {
         def MOBILE_APP_SECRET = project.findProperty("mobile_app_secret") ?: ""
         def PRODUCER_ID = project.findProperty("producer_id") ?: ""
         def APP_VERSION = project.findProperty('app_version') ?: ""
+        def ENABLE_AI_SEARCH = project.findProperty("enable_ai_search") ?: "true"
 
         resValue "string", "base_url", "${BASE_URL}"
         resValue "string", "mobile_app_consumer", "${MOBILE_APP_CONSUMER}"
@@ -22,6 +23,7 @@ android {
         resValue "string", "mobile_app_secret", "${MOBILE_APP_SECRET}"
         resValue "string", "producer_id", "${PRODUCER_ID}"
         resValue "string", "app_version", "${APP_VERSION}"
+        resValue "string", "enable_ai_search", "${ENABLE_AI_SEARCH}"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
