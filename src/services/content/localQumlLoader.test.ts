@@ -82,6 +82,107 @@ describe('loadLocalQumlContent — standalone question', () => {
     expect(result.body).not.toContain('/assets/public/content/x.png');
   });
 
+  it('rewrites <video> body tags keyed by data-asset-variable', async () => {
+    mockGetByIdentifier.mockResolvedValue({
+      content_state: 2,
+      path: 'file:///c/do_q/',
+      mime_type: 'application/vnd.sunbird.question',
+    } as any);
+
+    mockReadFile.mockImplementation(
+      readFileByPath({
+        'manifest.json': {
+          archive: {
+            items: [
+              {
+                identifier: 'do_q',
+                mimeType: 'application/vnd.sunbird.question',
+                body: '<video data-asset-variable="v1" src="do_q/clip.mp4" controls></video>',
+                media: [{ id: 'v1', type: 'video', src: 'do_q/clip.mp4' }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    mockReaddir.mockResolvedValue({ files: [{ name: 'clip.mp4' }] } as any);
+
+    const result = await loadLocalQumlContent('do_q');
+
+    const expectedUrl = 'https://localhost/_capacitor_file_file:///c/do_q/do_q/clip.mp4';
+    expect(result.media[0].src).toBe(expectedUrl);
+    expect(result.body).toContain(`src="${expectedUrl}"`);
+    expect(result.body).not.toContain('src="do_q/clip.mp4"');
+  });
+
+  it('rewrites <source> tags by literal relative src (no data-asset-variable)', async () => {
+    mockGetByIdentifier.mockResolvedValue({
+      content_state: 2,
+      path: 'file:///c/do_q/',
+      mime_type: 'application/vnd.sunbird.question',
+    } as any);
+
+    mockReadFile.mockImplementation(
+      readFileByPath({
+        'manifest.json': {
+          archive: {
+            items: [
+              {
+                identifier: 'do_q',
+                mimeType: 'application/vnd.sunbird.question',
+                body: '<audio controls><source src="do_q/sound.mp3" type="audio/mpeg"></audio>',
+                media: [{ id: 'a1', type: 'audio', src: 'do_q/sound.mp3' }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    mockReaddir.mockResolvedValue({ files: [{ name: 'sound.mp3' }] } as any);
+
+    const result = await loadLocalQumlContent('do_q');
+
+    const expectedUrl = 'https://localhost/_capacitor_file_file:///c/do_q/do_q/sound.mp3';
+    expect(result.media[0].src).toBe(expectedUrl);
+    expect(result.body).toContain(`src="${expectedUrl}"`);
+    expect(result.body).not.toContain('src="do_q/sound.mp3"');
+  });
+
+  it('handles single-quoted src attributes', async () => {
+    mockGetByIdentifier.mockResolvedValue({
+      content_state: 2,
+      path: 'file:///c/do_q/',
+      mime_type: 'application/vnd.sunbird.question',
+    } as any);
+
+    mockReadFile.mockImplementation(
+      readFileByPath({
+        'manifest.json': {
+          archive: {
+            items: [
+              {
+                identifier: 'do_q',
+                mimeType: 'application/vnd.sunbird.question',
+                body: "<img data-asset-variable='a1' src='/old.png' />",
+                media: [{ id: 'a1', type: 'image', src: 'do_q/a1.png' }],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    mockReaddir.mockResolvedValue({ files: [{ name: 'a1.png' }] } as any);
+
+    const result = await loadLocalQumlContent('do_q');
+
+    const expectedUrl = 'https://localhost/_capacitor_file_file:///c/do_q/do_q/a1.png';
+    expect(result.media[0].src).toBe(expectedUrl);
+    // a single src is present, pointed at the local URL (no duplicate src inserted)
+    expect(result.body).toContain(expectedUrl);
+    expect(result.body).not.toContain("src='/old.png'");
+    expect((result.body.match(/\bsrc\s*=/g) || []).length).toBe(1);
+  });
+
   it('repairs mangled "%2F" filenames via asset-id match and percent-escapes the URL', async () => {
     mockGetByIdentifier.mockResolvedValue({
       content_state: 2,

@@ -86,7 +86,8 @@ function rewriteBodyMedia(
     let url: string | undefined;
 
     // Prefer the asset id (how the player tags images, often AV wrappers too).
-    const id = tag.match(/data-asset-variable\s*=\s*"([^"]+)"/i)?.[1];
+    // Attributes may use single or double quotes.
+    const id = tag.match(/data-asset-variable\s*=\s*(["'])(.*?)\1/i)?.[2];
     if (id && idToUrl.has(id)) {
       url = idToUrl.get(id);
     }
@@ -94,7 +95,7 @@ function rewriteBodyMedia(
     // Else match the tag's own src against a known relative media src
     // (e.g. <source src="do_<id>/clip.mp4">).
     if (!url) {
-      const curSrc = tag.match(/\bsrc\s*=\s*"([^"]*)"/i)?.[1];
+      const curSrc = tag.match(/\bsrc\s*=\s*(["'])(.*?)\1/i)?.[2];
       if (curSrc && srcToUrl.has(curSrc)) {
         url = srcToUrl.get(curSrc);
       }
@@ -102,8 +103,8 @@ function rewriteBodyMedia(
 
     if (!url) return tag;
 
-    if (/\bsrc\s*=\s*"/i.test(tag)) {
-      return tag.replace(/(\bsrc\s*=\s*")[^"]*(")/i, `$1${url}$2`);
+    if (/\bsrc\s*=\s*["']/i.test(tag)) {
+      return tag.replace(/(\bsrc\s*=\s*)(["'])[^"']*\2/i, `$1$2${url}$2`);
     }
     return tag.replace(new RegExp(`<${tagName}\\b`, 'i'), `<${tagName} src="${url}"`);
   });
