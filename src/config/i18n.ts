@@ -14,9 +14,16 @@ const resources = {
   pt: { translation: pt },
 };
 
+const initialLanguage = localStorage.getItem('appLanguage') || 'en';
+
+// The QuML player web component reads its UI language from the 'app-language'
+// localStorage key. Seed it at startup so a player opened before the user
+// manually switches language still picks up the stored language.
+localStorage.setItem('app-language', initialLanguage);
+
 i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem('appLanguage') || 'en',
+  lng: initialLanguage,
   fallbackLng: 'en',
   interpolation: {
     escapeValue: false,
