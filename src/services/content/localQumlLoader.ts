@@ -52,46 +52,85 @@ function localMediaUrl(dirUri: string, fileName: string): string {
   return Capacitor.convertFileSrc(`${dirUri}/${fileName}`);
 }
 
+/** Media tags the player renders directly from body HTML. */
+const MEDIA_TAG_RE = /<(img|audio|video|source)\b[^>]*>/gi;
+
 /**
- * Rewrites the `src` of every `<img>` tag in a chunk of body HTML to the local
- * file URL, keyed by `data-asset-variable` → asset id.
+ * Rewrites the `src` of every media tag (`<img>`, `<audio>`, `<video>`,
+ * `<source>`) in a chunk of body HTML to the local file URL.
  *
  * The QuML player renders the question/option body HTML directly and only
- * substitutes a base path into image `src`s that are NOT already full URLs
- * (e.g. it leaves "https://..." alone). So pointing each body `<img>` at a full
- * `https://localhost/_capacitor_file_/...` URL makes it load straight from disk.
+ * substitutes a base path into `src`s that are NOT already full URLs (it leaves
+ * "https://..." alone). So pointing each tag at a full
+ * `https://localhost/_capacitor_file_/...` URL makes it load straight from disk
+ * — for audio/video exactly as for images.
+ *
+ * Two keying strategies, because AV markup varies by content:
+ *  1. By `data-asset-variable` → asset id (how the player tags images, and
+ *     often the wrapping `<video>`/`<audio>` element too).
+ *  2. By the literal relative `src` string (e.g. a `<source src="do_<id>/clip.mp4">`
+ *     that carries the path instead of an asset id) → its resolved URL.
  */
-function rewriteBodyImages(html: string, idToUrl: Map<string, string>): string {
-  if (typeof html !== 'string' || !html.includes('<img')) return html;
-  return html.replace(/<img\b[^>]*>/gi, (tag) => {
-    const idMatch = tag.match(/data-asset-variable\s*=\s*"([^"]+)"/i);
-    const id = idMatch?.[1];
-    if (!id || !idToUrl.has(id)) return tag;
-    const url = idToUrl.get(id) as string;
-    if (/\bsrc\s*=\s*"/i.test(tag)) {
-      return tag.replace(/(\bsrc\s*=\s*")[^"]*(")/i, `$1${url}$2`);
+function rewriteBodyMedia(
+  html: string,
+  idToUrl: Map<string, string>,
+  srcToUrl: Map<string, string>
+): string {
+  if (typeof html !== 'string') return html;
+  if (!/<(img|audio|video|source)\b/i.test(html)) return html;
+
+  return html.replace(MEDIA_TAG_RE, (tag, tagName) => {
+    // Resolve the target URL for this tag, confined to the tag itself so we
+    // never corrupt a URL we already inserted (a resolved URL contains the
+    // original relative src as a substring).
+    let url: string | undefined;
+
+    // Prefer the asset id (how the player tags images, often AV wrappers too).
+    // Attributes may use single or double quotes.
+    const id = tag.match(/data-asset-variable\s*=\s*(["'])(.*?)\1/i)?.[2];
+    if (id && idToUrl.has(id)) {
+      url = idToUrl.get(id);
     }
-    return tag.replace(/<img\b/i, `<img src="${url}"`);
+
+    // Else match the tag's own src against a known relative media src
+    // (e.g. <source src="do_<id>/clip.mp4">).
+    if (!url) {
+      const curSrc = tag.match(/\bsrc\s*=\s*(["'])(.*?)\1/i)?.[2];
+      if (curSrc && srcToUrl.has(curSrc)) {
+        url = srcToUrl.get(curSrc);
+      }
+    }
+
+    if (!url) return tag;
+
+    if (/\bsrc\s*=\s*["']/i.test(tag)) {
+      return tag.replace(/(\bsrc\s*=\s*)(["'])[^"']*\2/i, `$1$2${url}$2`);
+    }
+    return tag.replace(new RegExp(`<${tagName}\\b`, 'i'), `<${tagName} src="${url}"`);
   });
 }
 
 /**
- * Walks a question object and rewrites `<img>` srcs in every string field
+ * Walks a question object and rewrites media `src`s in every string field
  * (body, interaction option labels, editorState, answer, …) so we don't have to
  * know which exact fields carry HTML.
  */
-function deepRewriteBodies(node: any, idToUrl: Map<string, string>): void {
+function deepRewriteBodies(
+  node: any,
+  idToUrl: Map<string, string>,
+  srcToUrl: Map<string, string>
+): void {
   if (Array.isArray(node)) {
     for (let i = 0; i < node.length; i++) {
       const v = node[i];
-      if (typeof v === 'string') node[i] = rewriteBodyImages(v, idToUrl);
-      else if (v && typeof v === 'object') deepRewriteBodies(v, idToUrl);
+      if (typeof v === 'string') node[i] = rewriteBodyMedia(v, idToUrl, srcToUrl);
+      else if (v && typeof v === 'object') deepRewriteBodies(v, idToUrl, srcToUrl);
     }
   } else if (node && typeof node === 'object') {
     for (const k of Object.keys(node)) {
       const v = node[k];
-      if (typeof v === 'string') node[k] = rewriteBodyImages(v, idToUrl);
-      else if (v && typeof v === 'object') deepRewriteBodies(v, idToUrl);
+      if (typeof v === 'string') node[k] = rewriteBodyMedia(v, idToUrl, srcToUrl);
+      else if (v && typeof v === 'object') deepRewriteBodies(v, idToUrl, srcToUrl);
     }
   }
 }
@@ -115,6 +154,9 @@ async function resolveQuestionMedia(question: any, baseDir: string): Promise<any
 
   const dirCache = new Map<string, string[]>();
   const idToUrl = new Map<string, string>();
+  // Original relative src → resolved URL, for media tags that carry the path
+  // (e.g. <source src>) rather than a data-asset-variable id.
+  const srcToUrl = new Map<string, string>();
   const resolved: any[] = [];
 
   for (const m of media) {
@@ -123,6 +165,8 @@ async function resolveQuestionMedia(question: any, baseDir: string): Promise<any
       if (m?.id && m?.src) idToUrl.set(m.id, m.src); // already a full URL
       continue;
     }
+
+    const originalSrc = m.src;
 
     // media src is relative to baseDir (e.g. "do_<id>/image.png")
     const slash = m.src.lastIndexOf('/');
@@ -147,12 +191,13 @@ async function resolveQuestionMedia(question: any, baseDir: string): Promise<any
     const finalUrl = localMediaUrl(dirUri, actualName);
     resolved.push({ ...m, src: finalUrl, baseUrl: '' });
     if (m.id && found) idToUrl.set(m.id, finalUrl);
+    if (found) srcToUrl.set(originalSrc, finalUrl);
   }
 
   question.media = resolved;
 
-  // Rewrite the actual <img> tags the player renders.
-  deepRewriteBodies(question, idToUrl);
+  // Rewrite the media tags (img/audio/video/source) the player renders.
+  deepRewriteBodies(question, idToUrl, srcToUrl);
 
   return question;
 }
