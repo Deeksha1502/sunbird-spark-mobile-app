@@ -198,6 +198,27 @@ describe('CollectionContentPlayer', () => {
     expect(loader).toHaveAttribute('data-error', 'No content data available.');
   });
 
+  it('keeps the loader up (does not mount the player) while a captions refetch is in flight, even though isLoading is already false', () => {
+    // The enriched (enrich=all) read has already succeeded once (isLoading: false)
+    // but is now mid-refetch (isFetching: true) - React Query's isLoading only
+    // ever covers the FIRST fetch, so a naive `isCaptionsPending = isLoading`
+    // would miss this refetch entirely and let the player mount with
+    // stale/captions-less data it can never pick up after mount.
+    mockUseContentReadReturn = {
+      data: { data: { content: defaultContentData } },
+      isLoading: false,
+      isFetching: true,
+      error: null,
+      refetch: mockRefetch,
+    };
+
+    render(<CollectionContentPlayer contentId="do_1" onClose={mockOnClose} />);
+
+    const loader = screen.getByTestId('page-loader');
+    expect(loader).toHaveAttribute('data-message', 'Loading content...');
+    expect(screen.queryByTestId('content-player')).not.toBeInTheDocument();
+  });
+
   it('renders ContentPlayer when content is loaded', () => {
     mockUseContentReadReturn = {
       data: { data: { content: defaultContentData } },

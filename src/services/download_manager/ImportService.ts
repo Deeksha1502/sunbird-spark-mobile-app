@@ -13,11 +13,22 @@ type CancelChecker = () => Promise<boolean>;
 const CONTENT_DIR = 'content';
 const contentService = new ContentService();
 
-// The http-client has no built-in request timeout. Without a bound here, a
-// hung enrichment fetch (bad network, unresponsive server) would stall the
-// import queue's processing of subsequent entries too. Capped at 10s so a
-// slow/hung request degrades to "no captions for this video" instead.
-const TRANSCRIPT_ENRICHMENT_TIMEOUT_MS = 10_000;
+// Neither the http-client nor CapacitorHttp has a built-in request timeout.
+// Without a bound, a hung request (bad network, unresponsive server) - whether
+// fetching transcript enrichment metadata or downloading the caption ECAR
+// itself - would stall the import queue's processing of subsequent entries
+// too, since DownloadManager awaits each import() before moving to the next.
+// Capped at 10s so a slow/hung request degrades to "no captions for this
+// video" instead of blocking every other queued download behind it.
+const TRANSCRIPT_FETCH_TIMEOUT_MS = 10_000;
+
+/** Rejects with `message` after `ms` if `promise` hasn't settled by then. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]);
+}
 
 const ecmlMimeTypes = [
   'application/vnd.ekstep.ecml-archive',
@@ -608,13 +619,11 @@ export class ImportService {
     identifier: string,
   ): Promise<{ transcriptUrl?: string; transcripts?: Record<string, unknown>[] } | undefined> {
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('transcript enrichment fetch timed out')), TRANSCRIPT_ENRICHMENT_TIMEOUT_MS),
-      );
-      const response = await Promise.race([
+      const response = await withTimeout(
         contentService.contentRead(identifier, undefined, undefined, true),
-        timeout,
-      ]);
+        TRANSCRIPT_FETCH_TIMEOUT_MS,
+        'transcript enrichment fetch timed out',
+      );
       const content = (response.data as any)?.content;
       return {
         transcriptUrl: content?.enrichment?.transcriptUrl,
@@ -649,6 +658,11 @@ export class ImportService {
    * doesn't carry it), and server_data only does if a prior online enrich=all read
    * happened to persist it first. Without this, the rewrite below is a silent
    * no-op whenever neither field has a transcripts array yet.
+   *
+   * The ECAR fetch itself is also timeout-bounded (see withTimeout above) - this
+   * method is awaited directly by import(), which is itself awaited sequentially
+   * per queued entry, so a hung download here would otherwise stall every other
+   * queued download behind it, not just this one video's captions.
    */
   async downloadTranscripts(
     identifier: string,
@@ -663,7 +677,11 @@ export class ImportService {
     try {
       await Filesystem.mkdir({ path: tmpTranscriptDir, directory: Directory.Data, recursive: true }).catch(() => { });
 
-      const response = await CapacitorHttp.get({ url: transcriptUrl, responseType: 'blob' });
+      const response = await withTimeout(
+        CapacitorHttp.get({ url: transcriptUrl, responseType: 'blob' }),
+        TRANSCRIPT_FETCH_TIMEOUT_MS,
+        'transcript ECAR download timed out',
+      );
       if (response.status !== 200) return;
 
       await Filesystem.writeFile({ path: ecarPath, directory: Directory.Data, data: response.data });

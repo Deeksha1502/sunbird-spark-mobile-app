@@ -840,6 +840,32 @@ describe('ImportService', () => {
       expect(result.status).toBe('SUCCESS');
     });
 
+    it('does not let a hung ECAR download block the import queue', async () => {
+      vi.useFakeTimers();
+      try {
+        const { Filesystem } = await import('@capacitor/filesystem');
+        const { CapacitorHttp } = await import('@capacitor/core');
+
+        vi.mocked(Filesystem.readFile).mockResolvedValue({
+          data: JSON.stringify({ ver: '1.1', archive: { items: [{ identifier: 'do_ecar_hang', mimeType: 'video/mp4' }] } }),
+        } as any);
+        // Never resolves - simulates a hung download against an http-client with
+        // no built-in timeout. import() awaits downloadTranscripts() directly, so
+        // without a timeout here this would stall the whole import indefinitely.
+        vi.mocked(CapacitorHttp.get).mockReturnValue(new Promise(() => { }));
+
+        const resultPromise = svc.import('do_ecar_hang', '/p.ecar', {
+          enrichment: { transcriptUrl: 'https://cdn/do_ecar_hang_transcripts.ecar' },
+        });
+        await vi.advanceTimersByTimeAsync(10_000);
+        const result = await resultPromise;
+
+        expect(result.status).toBe('SUCCESS');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     describe('transcriptUrl fallback fetch (contentMeta lacks enrichment)', () => {
       it('fetches transcriptUrl for video content when contentMeta has no enrichment', async () => {
         const { Filesystem } = await import('@capacitor/filesystem');

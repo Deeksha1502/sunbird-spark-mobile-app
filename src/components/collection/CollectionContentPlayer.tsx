@@ -69,8 +69,14 @@ const CollectionContentPlayer: React.FC<CollectionContentPlayerProps> = ({
   const {
     data: enrichedVideoData,
     isLoading: isEnrichedVideoLoading,
+    isFetching: isEnrichedVideoFetching,
   } = useContentRead(contentId, { enrichTranscripts: true, enabled: isVideoContent });
-  const isCaptionsPending = isVideoContent && isEnrichedVideoLoading;
+  // isLoading only covers the FIRST fetch (React Query: isPending && isFetching) -
+  // once this query has succeeded once, isLoading goes false even while a later
+  // refetch is still in flight. Checking isFetching too closes that gap - otherwise
+  // the player could mount mid-refetch with stale/captions-less data it will never
+  // pick up (it reads config once on mount, see the comment above).
+  const isCaptionsPending = isVideoContent && (isEnrichedVideoLoading || isEnrichedVideoFetching);
 
   const { isLocal, isCheckPending: isLocalCheckPending } = useIsContentLocal(contentId, { includeParentVisibility: true });
 

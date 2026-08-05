@@ -466,6 +466,51 @@ describe('ContentPlayerPage — player loading states', () => {
     expect(screen.queryByText('loading')).not.toBeInTheDocument();
     expect(screen.getByTestId('content-player')).toBeInTheDocument();
   });
+
+  it('keeps the loader up (does not mount the player) while a captions refetch is in flight, even though isLoading is already false', () => {
+    // Base read resolves immediately (video content, already downloaded once
+    // before - this is a refetch scenario, e.g. handleRetry's post-download
+    // refetchEnrichedVideo()). The enriched read has already succeeded once
+    // (isLoading: false) but is now mid-refetch (isFetching: true) - React
+    // Query's isLoading only ever covers the FIRST fetch, so a naive
+    // `isCaptionsPending = isEnrichedVideoLoading` would miss this refetch
+    // entirely and let the player mount with stale/captions-less data.
+    (useContentRead as any).mockImplementation((_id: string, options?: any) => {
+      if (options?.enrichTranscripts) {
+        return {
+          data: { data: { content: { identifier: 'do_test_123', mimeType: 'video/mp4' } } },
+          isLoading: false,
+          isFetching: true,
+          error: null,
+          refetch: vi.fn(),
+          fetchStatus: 'fetching',
+        };
+      }
+      return {
+        data: {
+          data: {
+            content: {
+              name: 'Test Video',
+              mimeType: 'video/mp4',
+              identifier: 'do_test_123',
+              contentType: 'Resource',
+            },
+          },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+        fetchStatus: 'idle',
+      };
+    });
+
+    render(<ContentPlayerPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'playItem' }));
+
+    expect(screen.getByText('loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('content-player')).not.toBeInTheDocument();
+  });
 });
 
 describe('ContentPlayerPage — offline local_data fallback merges transcripts from server_data', () => {

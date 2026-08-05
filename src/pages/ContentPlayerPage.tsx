@@ -101,9 +101,16 @@ const ContentPlayerPage: React.FC = () => {
   const {
     data: enrichedVideoData,
     isLoading: isEnrichedVideoLoading,
+    isFetching: isEnrichedVideoFetching,
     refetch: refetchEnrichedVideo,
   } = useContentRead(contentId, { enrichTranscripts: true, enabled: isVideoContent });
-  const isCaptionsPending = isVideoContent && isEnrichedVideoLoading;
+  // isLoading only covers the FIRST fetch (React Query: isPending && isFetching) -
+  // once this query has succeeded once, isLoading goes false even while a later
+  // refetch (e.g. handleRetry's post-download refetchEnrichedVideo()) is still in
+  // flight. Checking isFetching too closes that gap - otherwise the player could
+  // mount mid-refetch with stale/captions-less data it will never pick up (it reads
+  // config once on mount, see the comment above the fullscreen mount guard below).
+  const isCaptionsPending = isVideoContent && (isEnrichedVideoLoading || isEnrichedVideoFetching);
 
   const playerIsLoading = isLoading || (isQumlContent && isQumlLoading);
 
