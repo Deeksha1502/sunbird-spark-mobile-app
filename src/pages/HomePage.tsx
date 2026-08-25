@@ -226,7 +226,7 @@ const HomePage: React.FC = () => {
                     <IonSpinner name="crescent" />
                   </div>
                 ) : (
-                  homeSections.map(renderSection)
+                  homeSections.map((section, position) => renderSection(section, position))
                 )}
                 <FAQSection />
               </>
@@ -257,7 +257,7 @@ const HomePage: React.FC = () => {
                 <IonSpinner name="crescent" />
               </div>
             ) : (
-              landingSections.map(renderSection)
+              landingSections.map((section, position) => renderSection(section, position))
             )}
             <FAQSection />
           </>
