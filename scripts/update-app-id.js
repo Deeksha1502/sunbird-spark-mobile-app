@@ -2,7 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +17,12 @@ const FILES = {
   stringsXml: path.join(ROOT, 'android/app/src/main/res/values/strings.xml'),
   javaRoot: path.join(ROOT, 'android/app/src/main/java'),
 };
+
+// Absolute path to the locally installed Capacitor CLI entry point. Resolved
+// explicitly (rather than via `npx cap`, which searches PATH and may fetch a
+// package on demand) so the binary that runs is always the version pinned in
+// this project's lockfile.
+const CAPACITOR_CLI = path.join(ROOT, 'node_modules/@capacitor/cli/bin/capacitor');
 
 function validateAppId(id) {
   const segments = id.split('.');
@@ -233,9 +239,19 @@ function main() {
     process.exit(1);
   }
 
-  console.log('\nRunning npx cap sync android...\n');
+  console.log('\nRunning cap sync android...\n');
   try {
-    execSync('npx cap sync android', { cwd: ROOT, stdio: 'inherit' });
+    if (!fs.existsSync(CAPACITOR_CLI)) {
+      throw new Error(
+        `Capacitor CLI not found at ${CAPACITOR_CLI}. Run your package manager's install first.`,
+      );
+    }
+    // process.execPath is the absolute path of the running Node binary, so
+    // neither the interpreter nor the CLI is resolved through PATH.
+    execFileSync(process.execPath, [CAPACITOR_CLI, 'sync', 'android'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+    });
   } catch (err) {
     console.error(`\nError during cap sync: ${err.message}`);
     console.error('Rolling back all file changes...');

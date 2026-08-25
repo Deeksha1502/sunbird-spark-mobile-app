@@ -86,6 +86,15 @@ allprojects {
         mavenCentral()
     }
 
+    // Dependency locking: makes resolved versions reproducible and auditable so a
+    // compromised/re-published upstream version cannot silently enter a build.
+    // Lockfiles (<project>/gradle.lockfile) must be generated once with:
+    //   ./gradlew dependencies --write-locks
+    // and regenerated after any dependency/plugin version change.
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+
     configurations.configureEach {
         resolutionStrategy {
             runtimePins.each { force it }
