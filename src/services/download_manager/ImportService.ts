@@ -152,7 +152,7 @@ export class ImportService {
         const contentUri = (await Filesystem.getUri({ path: contentPath, directory: Directory.Data })).uri;
 
         // Extract/copy payload based on contentDisposition + contentEncoding
-        const contentState = await this.extractPayload(item, tmpDir, contentPath);
+        const contentState = await this.extractPayload(item, tmpDir, contentPath, item.identifier === identifier);
 
         // H5P/HTML: The genie-canvas renderer's htmlrenderer plugin constructs
         // iframe URLs as: {host}/assets/public/content/{type}/{id}-latest/index.html
@@ -277,7 +277,8 @@ export class ImportService {
   private async extractPayload(
     item: ManifestItem,
     tmpDir: string,
-    destDir: string
+    destDir: string,
+    isRoot: boolean,
   ): Promise<number> {
     const artifactUrl = item.artifactUrl;
     const disposition = item.contentDisposition || 'inline';
@@ -293,8 +294,8 @@ export class ImportService {
     // Online-only content (YouTube, external URLs) → metadata only, no artifact
     if (isNonDownloadable || disposition === 'online') return 0;
 
-    // A question's own ECAR has no artifact zip: its body is inline in manifest.json (copied in by copyManifestToContentDir) and its media sits under <identifier>/.
-    if (mimeType === QUESTION_MIME_TYPE && !artifactUrl && item.body) {
+    // A question's own ECAR has no artifact zip: its body is inline in manifest.json (copied in by copyManifestToContentDir, which writes only the root's directory) and its media sits under <identifier>/.
+    if (isRoot && mimeType === QUESTION_MIME_TYPE && !artifactUrl && item.body) {
       await this.copyDirectory(`${tmpDir}/${item.identifier}`, `${destDir}/${item.identifier}`);
       return 2;
     }

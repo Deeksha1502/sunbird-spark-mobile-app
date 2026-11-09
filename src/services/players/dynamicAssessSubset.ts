@@ -127,8 +127,12 @@ export function ecmlForLearner<T extends AnyRecord | undefined>(metadata: T, lea
   let body: AnyRecord;
   // cloneDeep rather than structuredClone, which older Android WebViews lack.
   try { body = isString ? JSON.parse(metadata.body) : _.cloneDeep(metadata.body); } catch { return unplayable; }
-  const stages: AnyRecord[] = Array.isArray(body?.theme?.stage) ? body.theme.stage : [];
+  // A single stage may be stored as an object, as the ECML bridge also accepts.
+  const stages: AnyRecord[] = ([] as AnyRecord[]).concat(body?.theme?.stage ?? []);
   let changed = false;
+  // Counts across the generated quizzes, so a draw that leaves none of them a question is reported as not ready.
+  let dynamicQuizzes = 0;
+  let playable = 0;
   for (const stage of stages) {
     const quizzes: AnyRecord[] = ([] as AnyRecord[]).concat(stage?.['org.ekstep.questionset'] ?? []);
     for (const quiz of quizzes) {
@@ -138,14 +142,18 @@ export function ecmlForLearner<T extends AnyRecord | undefined>(metadata: T, lea
         quiz['org.ekstep.question'] = [];
         if (quiz.data) quiz.data.__cdata = '[]';
         changed = true;
+        dynamicQuizzes++;
         continue;
       }
       const block = config?.dynamic_assess;
       const questions: AnyRecord[] = ([] as AnyRecord[]).concat(quiz['org.ekstep.question'] ?? []);
-      if (!block || questions.length === 0) continue;
+      if (!block) continue;
+      dynamicQuizzes++;
+      if (questions.length === 0) continue;
       const levels: AnyRecord = block.levels ?? {};
       const picked = pickByLevel(questions.map((q) => String(q.id)), (id) => String(levels[id] ?? ''), toTarget(block.target), poolMultiplier(metadata), `${learnerId}:${metadata.identifier}`);
       const kept = questions.filter((q) => picked.has(String(q.id)));
+      playable += kept.length;
       if (kept.length === questions.length) continue;
       let items: AnyRecord[] = [];
       try { items = JSON.parse(quiz?.data?.__cdata ?? '[]'); } catch { items = []; }
@@ -158,6 +166,7 @@ export function ecmlForLearner<T extends AnyRecord | undefined>(metadata: T, lea
       changed = true;
     }
   }
+  if (dynamicQuizzes > 0 && playable === 0) return unplayable;
   if (!changed) return metadata;
   return { ...metadata, body: isString ? JSON.stringify(body) : body } as T;
 }

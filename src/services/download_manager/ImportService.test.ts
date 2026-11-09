@@ -1091,6 +1091,19 @@ describe('ImportService', () => {
       expect(Filesystem.copy).toHaveBeenCalledWith(expect.objectContaining({ from: expect.stringMatching(/\/do_q1\/img\.png$/), to: 'content/do_q1/do_q1/img.png' }));
     });
 
+    it("fetches an inline question inside a set's ECAR from its own ECAR instead of marking it available without a manifest (negative)", async () => {
+      await manifestWith([
+        { identifier: 'do_qs', mimeType: QS },
+        { identifier: 'do_q1', mimeType: Q, body: '<p>Q</p>', downloadUrl: 'https://cdn/question/do_q1.ecar' },
+      ]);
+
+      const result = await svc.import('do_qs', '/p.ecar');
+
+      const row = vi.mocked(contentDb.upsert).mock.calls.map(([r]) => r as ContentEntry).find((r) => r.identifier === 'do_q1');
+      expect(row?.content_state).toBe(0);
+      expect(result.pendingChildren).toEqual([expect.objectContaining({ identifier: 'do_q1' })]);
+    });
+
     it('does not request downloads for questions of non-question-set imports (negative)', async () => {
       await manifestWith([
         { identifier: 'do_course', mimeType: 'application/vnd.ekstep.content-collection' },

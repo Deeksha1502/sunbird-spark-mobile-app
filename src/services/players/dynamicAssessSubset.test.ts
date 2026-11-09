@@ -156,14 +156,34 @@ describe('ecmlForLearner', () => {
     const out: any = ecmlForLearner({ ...content(), multiplier: 3 }, 'u1');
     expect(JSON.parse(out.body).theme.stage[0]['org.ekstep.questionset'][0]['org.ekstep.question']).toHaveLength(2);
     const tight: any = ecmlForLearner({ ...content(), multiplier: 4 }, 'u1');
-    expect(JSON.parse(tight.body).theme.stage[0]['org.ekstep.questionset'][0]['org.ekstep.question']).toEqual([]);
+    expect(isDynamicAssessUnavailable(tight)).toBe(true);
   });
 
-  it('plays nothing, never the pool, for a zero target (positive)', () => {
+  it('marks a zero-target draw unavailable and drops the package, never playing the pool (positive)', () => {
     const body: any = quizBody(true);
     body.theme.stage[0]['org.ekstep.questionset'][0].config.__cdata = JSON.stringify({ dynamic_assess: { target: { E: 0, M: 0, D: 0 }, levels } });
+    const out: any = ecmlForLearner({ identifier: 'do_ecml', primaryCategory: 'Dynamic Course Assessment', body, artifactUrl: 'https://cdn/x.ecar' }, 'u1');
+    expect(isDynamicAssessUnavailable(out)).toBe(true);
+    expect(out.body).toBeUndefined();
+    expect(out.artifactUrl).toBeUndefined();
+  });
+
+  it('keeps a draw playable when only some generated quizzes come out empty (negative)', () => {
+    const body: any = quizBody(true);
+    const empty = structuredClone(body.theme.stage[0]['org.ekstep.questionset'][0]);
+    empty.config.__cdata = JSON.stringify({ dynamic_assess: { target: { E: 0, M: 0, D: 0 }, levels } });
+    body.theme.stage.push({ 'org.ekstep.questionset': [empty] });
     const out: any = ecmlForLearner({ identifier: 'do_ecml', primaryCategory: 'Dynamic Course Assessment', body }, 'u1');
-    expect(out.body.theme.stage[0]['org.ekstep.questionset'][0]['org.ekstep.question']).toEqual([]);
+    expect(isDynamicAssessUnavailable(out)).toBe(false);
+    expect(out.body.theme.stage[0]['org.ekstep.questionset'][0]['org.ekstep.question']).toHaveLength(2);
+    expect(out.body.theme.stage[1]['org.ekstep.questionset'][0]['org.ekstep.question']).toEqual([]);
+  });
+
+  it('draws from a single stage stored as an object, not an array (positive)', () => {
+    const body: any = quizBody(true);
+    body.theme.stage = body.theme.stage[0];
+    const out: any = ecmlForLearner({ identifier: 'do_ecml', primaryCategory: 'Dynamic Course Assessment', body }, 'u1');
+    expect(out.body.theme.stage['org.ekstep.questionset'][0]['org.ekstep.question']).toHaveLength(2);
   });
 });
 
@@ -186,10 +206,11 @@ describe('ecmlForLearner — fail closed', () => {
     expect(isDynamicAssessUnavailable(undefined)).toBe(false);
   });
 
-  it('empties a quiz whose config cannot be read instead of playing it whole (positive)', () => {
+  it('marks content unavailable when its only quiz config cannot be read, instead of playing it whole (positive)', () => {
     const body = { theme: { stage: [{ 'org.ekstep.questionset': [{ config: { __cdata: '{broken' }, data: { __cdata: '[{"identifier":"a1"}]' }, 'org.ekstep.question': [{ id: 'a1' }] }] }] } };
     const out: any = ecmlForLearner({ identifier: 'do_e', primaryCategory: 'Dynamic Course Assessment', body }, 'u1');
-    expect(out.body.theme.stage[0]['org.ekstep.questionset'][0]['org.ekstep.question']).toEqual([]);
+    expect(isDynamicAssessUnavailable(out)).toBe(true);
+    expect(out.body).toBeUndefined();
   });
 
   it('leaves non-Dynamic content without a body untouched (negative)', () => {
